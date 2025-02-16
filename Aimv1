@@ -1,8 +1,9 @@
 local player = game.Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
 
--- Tạo GUI
+-- Tạo GUI trong StarterGui để đảm bảo nó không bị mất khi chết
 local screenGui = Instance.new("ScreenGui", playerGui)
+screenGui.ResetOnSpawn = false  -- Đảm bảo GUI không bị xóa khi người chơi chết
 
 local menuButton = Instance.new("TextButton")
 menuButton.Size = UDim2.new(0, 100, 0, 50)
@@ -52,6 +53,7 @@ end
 -- Biến để theo dõi camera
 local isCameraPinned = false
 local currentPlayer = nil
+local activeTween = nil  -- Để theo dõi tween đang chạy
 
 -- Ghim tâm camera vào đầu người chơi gần nhất với Tween để mượt hơn
 local function updateCameraAim()
@@ -63,10 +65,15 @@ local function updateCameraAim()
         -- Tính toán CFrame mới từ camera tới đầu của player gần nhất
         local newCameraCFrame = CFrame.new(cameraPosition, headPosition)
 
+        -- Nếu có tween đang chạy, hãy dừng lại
+        if activeTween then
+            activeTween:Cancel()
+        end
+
         -- Tạo tween để di chuyển camera một cách mượt mà
-        local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out) -- Điều chỉnh thời gian tween ngắn hơn để tăng tốc độ
-        local tween = TweenService:Create(camera, tweenInfo, {CFrame = newCameraCFrame})
-        tween:Play()
+        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)  -- Tween thời gian dài hơn để mượt mà hơn
+        activeTween = TweenService:Create(camera, tweenInfo, {CFrame = newCameraCFrame})
+        activeTween:Play()
     end
 end
 
