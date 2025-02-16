@@ -1,29 +1,98 @@
-local player = game.Players.LocalPlayer
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
 local camera = workspace.CurrentCamera
-local ui = Instance.new("ScreenGui", player:WaitForChild("PlayerGui"))
-ui.Name = "CameraControlUI"
 
--- Tạo Nút Bật
-local btnOn = Instance.new("TextButton", ui)
+-- Tạo ScreenGui và 2 nút giao diện
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "CameraPinGui"
+screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+-- Nút bật ghim
+local btnOn = Instance.new("TextButton")
+btnOn.Name = "btnOn"
 btnOn.Text = "Bật Ghim"
-btnOn.Size = UDim2.new(0, 200, 0, 50)
-btnOn.Position = UDim2.new(0.5, -100, 0.5, -60)
+btnOn.Size = UDim2.new(0, 150, 0, 50)
+btnOn.Position = UDim2.new(0, 10, 0, 10)
+btnOn.Parent = screenGui
 
--- Tạo Nút Tắt
-local btnOff = Instance.new("TextButton", ui)
+-- Nút tắt ghim
+local btnOff = Instance.new("TextButton")
+btnOff.Name = "btnOff"
 btnOff.Text = "Tắt Ghim"
-btnOff.Size = UDim2.new(0, 200, 0, 50)
-btnOff.Position = UDim2.new(0.5, -100, 0.5, 0)
+btnOff.Size = UDim2.new(0, 150, 0, 50)
+btnOff.Position = UDim2.new(0, 10, 0, 70)
+btnOff.Parent = screenGui
 
-local function ghimCamera()
-    camera.CameraSubject = player.Character:FindFirstChild("Humanoid")
-    camera.CameraType = Enum.CameraType.Follow
+-- Biến quản lý trạng thái ghim và connection update
+local pinConnection
+local pinEnabled = false
+
+-- Hàm tìm người chơi gần nhất (khác LocalPlayer) trong khoảng 1000 đơn vị, dựa theo vị trí của HumanoidRootPart
+local function getNearestPlayer()
+    local character = LocalPlayer.Character
+    if not character then return nil end
+    local hrp = character:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+
+    local nearestPlayer = nil
+    local nearestDistance = math.huge
+
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local targetHead = player.Character:FindFirstChild("Head")
+            if targetHead then
+                local distance = (hrp.Position - targetHead.Position).Magnitude
+                if distance <= 1000 and distance < nearestDistance then
+                    nearestDistance = distance
+                    nearestPlayer = player
+                end
+            end
+        end
+    end
+
+    return nearestPlayer
 end
 
-local function tatGhimCamera()
-    camera.CameraSubject = nil
+-- Hàm bật ghim camera: liên tục cập nhật camera theo Head của người chơi gần nhất
+local function startPinning()
+    if pinEnabled then return end
+    pinEnabled = true
+
+    -- Chuyển camera sang chế độ Scriptable để tự cập nhật vị trí
+    camera.CameraType = Enum.CameraType.Scriptable
+
+    pinConnection = RunService.RenderStepped:Connect(function()
+        local targetPlayer = getNearestPlayer()
+        if targetPlayer and targetPlayer.Character then
+            local targetHead = targetPlayer.Character:FindFirstChild("Head")
+            if targetHead then
+                -- Cập nhật camera ngay vị trí và hướng của Head của người chơi được ghim
+                camera.CFrame = targetHead.CFrame
+            end
+        else
+            -- Nếu không có người chơi nào trong khoảng, có thể chọn cập nhật về vị trí Head của bạn (tùy chọn)
+            local localHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
+            if localHead then
+                camera.CFrame = localHead.CFrame
+            end
+        end
+    end)
+end
+
+-- Hàm tắt ghim camera: dừng cập nhật và đưa camera về chế độ Custom (mặc định)
+local function stopPinning()
+    if not pinEnabled then return end
+    pinEnabled = false
+
+    if pinConnection then
+        pinConnection:Disconnect()
+        pinConnection = nil
+    end
+
     camera.CameraType = Enum.CameraType.Custom
 end
 
-btnOn.MouseButton1Click:Connect(ghimCamera)
-btnOff.MouseButton1Click:Connect(tatGhimCamera)
+-- Kết nối sự kiện nhấn nút
+btnOn.MouseButton1Click:Connect(startPinning)
+btnOff.MouseButton1Click:Connect(stopPinning)
