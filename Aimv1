@@ -1,9 +1,14 @@
 local player = game.Players.LocalPlayer
 local playerGui = player:WaitForChild("PlayerGui")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
 
--- Tạo GUI trong StarterGui để đảm bảo nó không bị mất khi chết
-local screenGui = Instance.new("ScreenGui", playerGui)
-screenGui.ResetOnSpawn = false  -- Đảm bảo GUI không bị xóa khi người chơi chết
+-----------------------------------------------------------
+-- TẠO GUI (GUI được gắn vĩnh viễn, không ResetOnSpawn)
+-----------------------------------------------------------
+local screenGui = Instance.new("ScreenGui")
+screenGui.Parent = playerGui
+screenGui.ResetOnSpawn = false  -- Giữ lại GUI sau khi respawn
 
 local menuButton = Instance.new("TextButton")
 menuButton.Size = UDim2.new(0, 100, 0, 50)
@@ -24,89 +29,184 @@ cameraToggleButton.Position = UDim2.new(0.5, -75, 0.5, -25)
 cameraToggleButton.Text = "Bật Ghim Camera"
 cameraToggleButton.Parent = menuFrame
 
--- TweenService để mượt hóa chuyển động camera
-local TweenService = game:GetService("TweenService")
-
--- Sự kiện mở menu
 menuButton.MouseButton1Click:Connect(function()
     menuFrame.Visible = not menuFrame.Visible
 end)
 
--- Hàm tìm player gần nhất (trừ người chơi hiện tại)
-local function getNearestPlayer()
+-----------------------------------------------------------
+-- HÀM CHỌN NGƯỜI CHƠI (CÓ CHECK LINE-OF-SIGHT)
+-----------------------------------------------------------
+local function getNearestVisiblePlayer()
     local nearestPlayer = nil
     local shortestDistance = math.huge
+    local camera = workspace.CurrentCamera
+    local origin = camera.CFrame.Position
+    local raycastParams = RaycastParams.new()
+    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
 
     for _, p in pairs(game.Players:GetPlayers()) do
         if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
-            local distance = (p.Character.Head.Position - player.Character.Head.Position).Magnitude
-            if distance < shortestDistance then
-                shortestDistance = distance
-                nearestPlayer = p
+            local headPos = p.Character.Head.Position
+            -- Loại trừ cả nhân vật của bạn và của target để kiểm tra đường thẳng
+            if player.Character then
+                raycastParams.FilterDescendantsInstances = {p.Character, player.Character}
+            else
+                raycastParams.FilterDescendantsInstances = {p.Character}
+            end
+            local direction = headPos - origin
+            local result = workspace:Raycast(origin, direction, raycastParams)
+            if not result then  -- Nếu không có vật cản thì target có thể nhìn thấy
+                local distance = direction.Magnitude
+                if distance < shortestDistance then
+                    shortestDistance = distance
+                    nearestPlayer = p
+                end
             end
         end
     end
-
     return nearestPlayer
 end
 
--- Biến để theo dõi camera
+-----------------------------------------------------------
+-- CÀI ĐẶT CAMERA GHIM VỚI TWEEN (MƯỚT VÀ NHANH)
+-----------------------------------------------------------
 local isCameraPinned = false
-local currentPlayer = nil
-local activeTween = nil  -- Để theo dõi tween đang chạy
+local currentTarget = nil
+local activeTween = nil
 
--- Ghim tâm camera vào đầu người chơi gần nhất với Tween để mượt hơn
 local function updateCameraAim()
-    if currentPlayer and currentPlayer.Character and currentPlayer.Character:FindFirstChild("Head") then
-        local camera = game.Workspace.CurrentCamera
-        local headPosition = currentPlayer.Character.Head.Position
+    if not isCameraPinned then return end
+    local camera = workspace.CurrentCamera
+
+    if currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("Head") then
+        local headPosition = currentTarget.Character.Head.Position
         local cameraPosition = camera.CFrame.Position
         
-        -- Tính toán CFrame mới từ camera tới đầu của player gần nhất
-        local newCameraCFrame = CFrame.new(cameraPosition, headPosition)
+        -- Kiểm tra line-of-sight (để đảm bảo target không bị che bởi tường)
+        local rayParams = RaycastParams.new()
+        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+        if player.Character then
+            rayParams.FilterDescendantsInstances = {currentTarget.Character, player.Character}
+        else
+            rayParams.FilterDescendantsInstances = {currentTarget.Character}
+        end
+        local direction = headPosition - cameraPosition
+        local rayResult = workspace:Raycast(cameraPosition, direction, rayParams)
+        if rayResult then
+            -- Nếu bị che, thử chuyển target khác
+            currentTarget = getNearestVisiblePlayer()
+            return
+        end
 
-        -- Nếu có tween đang chạy, hãy dừng lại
+        local newCFrame = CFrame.new(cameraPosition, headPosition)
         if activeTween then
             activeTween:Cancel()
         end
-
-        -- Tạo tween để di chuyển camera một cách mượt mà
-        local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)  -- Tween thời gian dài hơn để mượt mà hơn
-        activeTween = TweenService:Create(camera, tweenInfo, {CFrame = newCameraCFrame})
+        local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+        activeTween = TweenService:Create(camera, tweenInfo, {CFrame = newCFrame})
         activeTween:Play()
+    else
+        -- Nếu target không hợp lệ, tìm target mới
+        currentTarget = getNearestVisiblePlayer()
     end
 end
 
--- Theo dõi khi player chết và đổi qua người gần nhất
-local function onPlayerDeath()
-    if currentPlayer and currentPlayer.Character then
-        currentPlayer.Character.Humanoid.Died:Connect(function()
-            local newPlayer = getNearestPlayer()
-            if newPlayer then
-                currentPlayer = newPlayer
-                updateCameraAim()
-            end
+-- Theo dõi khi target chết, chuyển target ngay lập tức
+local function monitorTargetDeath()
+    if currentTarget and currentTarget.Character then
+        local humanoid = currentTarget.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            humanoid.Died:Connect(function()
+                currentTarget = getNearestVisiblePlayer()
+            end)
+        end
+    end
+end
+
+-----------------------------------------------------------
+-- BILLBOARD HIỂN THỊ TÊN & KHOẢNG CÁCH CHO CÁC NGƯỜI CHƠI
+-----------------------------------------------------------
+local function createBillboard(character, targetPlayer)
+    local head = character:WaitForChild("Head", 5)
+    if head and not head:FindFirstChild("NameBillboard") then
+        local billboard = Instance.new("BillboardGui")
+        billboard.Name = "NameBillboard"
+        billboard.Adornee = head
+        billboard.Size = UDim2.new(0, 200, 0, 50)
+        billboard.StudsOffset = Vector3.new(0, 2, 0)
+        billboard.AlwaysOnTop = true
+        billboard.Parent = head
+
+        local textLabel = Instance.new("TextLabel", billboard)
+        textLabel.Size = UDim2.new(1, 0, 1, 0)
+        textLabel.BackgroundTransparency = 1
+        textLabel.TextColor3 = Color3.new(1, 1, 1)
+        textLabel.TextScaled = true
+        textLabel.Font = Enum.Font.SourceSansBold
+        textLabel.Text = targetPlayer.Name  -- Sẽ được cập nhật khoảng cách sau
+    end
+end
+
+-- Đối với các người chơi hiện có (ngoại trừ bạn) và khi respawn
+for _, p in pairs(game.Players:GetPlayers()) do
+    if p ~= player then
+        if p.Character then
+            createBillboard(p.Character, p)
+        end
+        p.CharacterAdded:Connect(function(char)
+            wait(0.1)
+            createBillboard(char, p)
         end)
     end
 end
 
--- Sự kiện bật/tắt ghim camera
+-- Cập nhật text của billboard (tên + khoảng cách)
+RunService.Heartbeat:Connect(function()
+    local localHead = player.Character and player.Character:FindFirstChild("Head")
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
+            local head = p.Character.Head
+            local billboard = head:FindFirstChild("NameBillboard")
+            if billboard then
+                local textLabel = billboard:FindFirstChildOfClass("TextLabel")
+                if textLabel and localHead then
+                    local distance = (head.Position - localHead.Position).Magnitude
+                    textLabel.Text = string.format("%s (%.1f m)", p.Name, distance)
+                end
+            end
+        end
+    end
+end)
+
+-----------------------------------------------------------
+-- SỰ KIỆN BẬT/TẮT GHIM CAMERA
+-----------------------------------------------------------
 cameraToggleButton.MouseButton1Click:Connect(function()
     isCameraPinned = not isCameraPinned
     if isCameraPinned then
         cameraToggleButton.Text = "Tắt Ghim Camera"
-        currentPlayer = getNearestPlayer()
-        updateCameraAim()
-        onPlayerDeath()
-
-        -- Sử dụng Heartbeat để cập nhật nhanh hơn
-        game:GetService("RunService").Heartbeat:Connect(function()
-            if isCameraPinned then
-                updateCameraAim()
-            end
-        end)
+        currentTarget = getNearestVisiblePlayer()
+        monitorTargetDeath()
     else
         cameraToggleButton.Text = "Bật Ghim Camera"
-        game.Workspace.CurrentCamera.CameraSubject = player.Character.Humanoid  -- Trả về camera ban đầu
+        currentTarget = nil
     end
+end)
+
+-----------------------------------------------------------
+-- CẬP NHẬT CAMERA THEO HEARTBEAT
+-----------------------------------------------------------
+RunService.Heartbeat:Connect(function()
+    if isCameraPinned then
+        updateCameraAim()
+    end
+end)
+
+-----------------------------------------------------------
+-- Đảm bảo khi bạn respawn GUI vẫn còn và các sự kiện khác không bị lỗi
+-----------------------------------------------------------
+player.CharacterAdded:Connect(function(char)
+    -- (GUI đã đặt ResetOnSpawn = false nên không mất)
+    -- Bạn có thể thêm các thiết lập bổ sung nếu cần khi character mới xuất hiện
+    wait(0.5)
 end)
