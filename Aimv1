@@ -50,10 +50,15 @@ end
 local isCameraPinned = false
 local currentPlayer = nil
 
--- Cập nhật camera theo player
-local function pinCameraToPlayer(p)
-    if p and p.Character and p.Character:FindFirstChild("Head") then
-        game.Workspace.CurrentCamera.CameraSubject = p.Character.Head
+-- Tính toán góc nhìn để ghim tâm vào đầu player gần nhất
+local function updateCameraAim()
+    if currentPlayer and currentPlayer.Character and currentPlayer.Character:FindFirstChild("Head") then
+        local camera = game.Workspace.CurrentCamera
+        local headPosition = currentPlayer.Character.Head.Position
+        local playerPosition = camera.CFrame.Position
+
+        -- Cập nhật CFrame camera sao cho crosshair luôn nhắm vào đầu của player gần nhất
+        camera.CFrame = CFrame.new(playerPosition, headPosition)
     end
 end
 
@@ -63,8 +68,8 @@ local function onPlayerDeath()
         currentPlayer.Character.Humanoid.Died:Connect(function()
             local newPlayer = getNearestPlayer()
             if newPlayer then
-                pinCameraToPlayer(newPlayer)
                 currentPlayer = newPlayer
+                updateCameraAim()
             end
         end)
     end
@@ -76,10 +81,17 @@ cameraToggleButton.MouseButton1Click:Connect(function()
     if isCameraPinned then
         cameraToggleButton.Text = "Tắt Ghim Camera"
         currentPlayer = getNearestPlayer()
-        pinCameraToPlayer(currentPlayer)
+        updateCameraAim()
         onPlayerDeath()
+
+        -- Liên tục cập nhật góc nhìn để ghim vào player gần nhất
+        game:GetService("RunService").RenderStepped:Connect(function()
+            if isCameraPinned then
+                updateCameraAim()
+            end
+        end)
     else
         cameraToggleButton.Text = "Bật Ghim Camera"
-        game.Workspace.CurrentCamera.CameraSubject = player.Character.Humanoid  -- Trả về player chính
+        game.Workspace.CurrentCamera.CameraSubject = player.Character.Humanoid  -- Trả về camera ban đầu
     end
 end)
