@@ -64,8 +64,8 @@ local function updateCameraAim()
             local deltaX = screenPoint.X - centerX
             local deltaY = screenPoint.Y - centerY
 
-            -- Điều chỉnh góc nhìn của camera để tâm ngắm nhắm vào đầu player gần nhất
-            camera.CFrame = camera.CFrame * CFrame.Angles(-math.rad(deltaY / 100), -math.rad(deltaX / 100), 0)
+            -- Điều chỉnh góc nhìn của camera để tâm ngắm nhắm vào đầu player gần nhất (nhanh hơn)
+            camera.CFrame = camera.CFrame * CFrame.Angles(-math.rad(deltaY / 50), -math.rad(deltaX / 50), 0)  -- Hệ số đã được giảm để cập nhật nhanh hơn
         end
     end
 end
@@ -92,8 +92,8 @@ cameraToggleButton.MouseButton1Click:Connect(function()
         updateCameraAim()
         onPlayerDeath()
 
-        -- Liên tục cập nhật góc nhìn để ghim vào player gần nhất
-        game:GetService("RunService").RenderStepped:Connect(function()
+        -- Sử dụng Heartbeat để cập nhật nhanh hơn
+        game:GetService("RunService").Heartbeat:Connect(function()
             if isCameraPinned then
                 updateCameraAim()
             end
