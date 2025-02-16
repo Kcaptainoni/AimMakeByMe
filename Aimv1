@@ -50,15 +50,23 @@ end
 local isCameraPinned = false
 local currentPlayer = nil
 
--- Tính toán góc nhìn để ghim tâm vào đầu player gần nhất
+-- Ghim tâm camera vào đầu người chơi gần nhất mà không đổi góc nhìn của người chơi chính
 local function updateCameraAim()
     if currentPlayer and currentPlayer.Character and currentPlayer.Character:FindFirstChild("Head") then
         local camera = game.Workspace.CurrentCamera
         local headPosition = currentPlayer.Character.Head.Position
-        local playerPosition = camera.CFrame.Position
+        local screenPoint = camera:WorldToViewportPoint(headPosition)
+        
+        -- Tính toán vị trí của đầu người chơi gần nhất so với viewport
+        if screenPoint.Z > 0 then
+            local centerX = camera.ViewportSize.X / 2
+            local centerY = camera.ViewportSize.Y / 2
+            local deltaX = screenPoint.X - centerX
+            local deltaY = screenPoint.Y - centerY
 
-        -- Cập nhật CFrame camera sao cho crosshair luôn nhắm vào đầu của player gần nhất
-        camera.CFrame = CFrame.new(playerPosition, headPosition)
+            -- Điều chỉnh góc nhìn của camera để tâm ngắm nhắm vào đầu player gần nhất
+            camera.CFrame = camera.CFrame * CFrame.Angles(-math.rad(deltaY / 100), -math.rad(deltaX / 100), 0)
+        end
     end
 end
 
