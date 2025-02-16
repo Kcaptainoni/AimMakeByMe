@@ -23,6 +23,9 @@ cameraToggleButton.Position = UDim2.new(0.5, -75, 0.5, -25)
 cameraToggleButton.Text = "Bật Ghim Camera"
 cameraToggleButton.Parent = menuFrame
 
+-- TweenService để mượt hóa chuyển động camera
+local TweenService = game:GetService("TweenService")
+
 -- Sự kiện mở menu
 menuButton.MouseButton1Click:Connect(function()
     menuFrame.Visible = not menuFrame.Visible
@@ -50,23 +53,20 @@ end
 local isCameraPinned = false
 local currentPlayer = nil
 
--- Ghim tâm camera vào đầu người chơi gần nhất mà không đổi góc nhìn của người chơi chính
+-- Ghim tâm camera vào đầu người chơi gần nhất với Tween để mượt hơn
 local function updateCameraAim()
     if currentPlayer and currentPlayer.Character and currentPlayer.Character:FindFirstChild("Head") then
         local camera = game.Workspace.CurrentCamera
         local headPosition = currentPlayer.Character.Head.Position
-        local screenPoint = camera:WorldToViewportPoint(headPosition)
+        local cameraPosition = camera.CFrame.Position
         
-        -- Tính toán vị trí của đầu người chơi gần nhất so với viewport
-        if screenPoint.Z > 0 then
-            local centerX = camera.ViewportSize.X / 2
-            local centerY = camera.ViewportSize.Y / 2
-            local deltaX = screenPoint.X - centerX
-            local deltaY = screenPoint.Y - centerY
+        -- Tính toán CFrame mới từ camera tới đầu của player gần nhất
+        local newCameraCFrame = CFrame.new(cameraPosition, headPosition)
 
-            -- Điều chỉnh góc nhìn của camera để tâm ngắm nhắm vào đầu player gần nhất (nhanh hơn)
-            camera.CFrame = camera.CFrame * CFrame.Angles(-math.rad(deltaY / 50), -math.rad(deltaX / 50), 0)  -- Hệ số đã được giảm để cập nhật nhanh hơn
-        end
+        -- Tạo tween để di chuyển camera một cách mượt mà
+        local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.Out) -- Điều chỉnh thời gian tween ngắn hơn để tăng tốc độ
+        local tween = TweenService:Create(camera, tweenInfo, {CFrame = newCameraCFrame})
+        tween:Play()
     end
 end
 
