@@ -28,7 +28,7 @@ menuButton.MouseButton1Click:Connect(function()
     menuFrame.Visible = not menuFrame.Visible
 end)
 
--- Hàm tìm player gần nhất
+-- Hàm tìm player gần nhất (trừ người chơi hiện tại)
 local function getNearestPlayer()
     local nearestPlayer = nil
     local shortestDistance = math.huge
