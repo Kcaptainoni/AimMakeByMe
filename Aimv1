@@ -1,52 +1,44 @@
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local LocalPlayer = Players.LocalPlayer
-local camera = workspace.CurrentCamera
+local player = game.Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
 
--- Tạo ScreenGui và 2 nút giao diện
-local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "CameraPinGui"
-screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+-- Tạo GUI
+local screenGui = Instance.new("ScreenGui", playerGui)
 
--- Nút bật ghim
-local btnOn = Instance.new("TextButton")
-btnOn.Name = "btnOn"
-btnOn.Text = "Bật Ghim"
-btnOn.Size = UDim2.new(0, 150, 0, 50)
-btnOn.Position = UDim2.new(0, 10, 0, 10)
-btnOn.Parent = screenGui
+local menuButton = Instance.new("TextButton")
+menuButton.Size = UDim2.new(0, 100, 0, 50)
+menuButton.Position = UDim2.new(0.1, 0, 0.1, 0)
+menuButton.Text = "Mở Menu"
+menuButton.Parent = screenGui
 
--- Nút tắt ghim
-local btnOff = Instance.new("TextButton")
-btnOff.Name = "btnOff"
-btnOff.Text = "Tắt Ghim"
-btnOff.Size = UDim2.new(0, 150, 0, 50)
-btnOff.Position = UDim2.new(0, 10, 0, 70)
-btnOff.Parent = screenGui
+local menuFrame = Instance.new("Frame")
+menuFrame.Size = UDim2.new(0, 200, 0, 200)
+menuFrame.Position = UDim2.new(0.5, -100, 0.5, -100)
+menuFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+menuFrame.Visible = false
+menuFrame.Parent = screenGui
 
--- Biến quản lý trạng thái ghim và connection update
-local pinConnection
-local pinEnabled = false
+local cameraToggleButton = Instance.new("TextButton")
+cameraToggleButton.Size = UDim2.new(0, 150, 0, 50)
+cameraToggleButton.Position = UDim2.new(0.5, -75, 0.5, -25)
+cameraToggleButton.Text = "Bật Ghim Camera"
+cameraToggleButton.Parent = menuFrame
 
--- Hàm tìm người chơi gần nhất (khác LocalPlayer) trong khoảng 1000 đơn vị, dựa theo vị trí của HumanoidRootPart
+-- Sự kiện mở menu
+menuButton.MouseButton1Click:Connect(function()
+    menuFrame.Visible = not menuFrame.Visible
+end)
+
+-- Hàm tìm player gần nhất
 local function getNearestPlayer()
-    local character = LocalPlayer.Character
-    if not character then return nil end
-    local hrp = character:FindFirstChild("HumanoidRootPart")
-    if not hrp then return nil end
-
     local nearestPlayer = nil
-    local nearestDistance = math.huge
+    local shortestDistance = math.huge
 
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= LocalPlayer and player.Character then
-            local targetHead = player.Character:FindFirstChild("Head")
-            if targetHead then
-                local distance = (hrp.Position - targetHead.Position).Magnitude
-                if distance <= 1000 and distance < nearestDistance then
-                    nearestDistance = distance
-                    nearestPlayer = player
-                end
+    for _, p in pairs(game.Players:GetPlayers()) do
+        if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
+            local distance = (p.Character.Head.Position - player.Character.Head.Position).Magnitude
+            if distance < shortestDistance then
+                shortestDistance = distance
+                nearestPlayer = p
             end
         end
     end
@@ -54,45 +46,40 @@ local function getNearestPlayer()
     return nearestPlayer
 end
 
--- Hàm bật ghim camera: liên tục cập nhật camera theo Head của người chơi gần nhất
-local function startPinning()
-    if pinEnabled then return end
-    pinEnabled = true
+-- Biến để theo dõi camera
+local isCameraPinned = false
+local currentPlayer = nil
 
-    -- Chuyển camera sang chế độ Scriptable để tự cập nhật vị trí
-    camera.CameraType = Enum.CameraType.Scriptable
-
-    pinConnection = RunService.RenderStepped:Connect(function()
-        local targetPlayer = getNearestPlayer()
-        if targetPlayer and targetPlayer.Character then
-            local targetHead = targetPlayer.Character:FindFirstChild("Head")
-            if targetHead then
-                -- Cập nhật camera ngay vị trí và hướng của Head của người chơi được ghim
-                camera.CFrame = targetHead.CFrame
-            end
-        else
-            -- Nếu không có người chơi nào trong khoảng, có thể chọn cập nhật về vị trí Head của bạn (tùy chọn)
-            local localHead = LocalPlayer.Character and LocalPlayer.Character:FindFirstChild("Head")
-            if localHead then
-                camera.CFrame = localHead.CFrame
-            end
-        end
-    end)
-end
-
--- Hàm tắt ghim camera: dừng cập nhật và đưa camera về chế độ Custom (mặc định)
-local function stopPinning()
-    if not pinEnabled then return end
-    pinEnabled = false
-
-    if pinConnection then
-        pinConnection:Disconnect()
-        pinConnection = nil
+-- Cập nhật camera theo player
+local function pinCameraToPlayer(p)
+    if p and p.Character and p.Character:FindFirstChild("Head") then
+        game.Workspace.CurrentCamera.CameraSubject = p.Character.Head
     end
-
-    camera.CameraType = Enum.CameraType.Custom
 end
 
--- Kết nối sự kiện nhấn nút
-btnOn.MouseButton1Click:Connect(startPinning)
-btnOff.MouseButton1Click:Connect(stopPinning)
+-- Theo dõi khi player chết và đổi qua người gần nhất
+local function onPlayerDeath()
+    if currentPlayer and currentPlayer.Character then
+        currentPlayer.Character.Humanoid.Died:Connect(function()
+            local newPlayer = getNearestPlayer()
+            if newPlayer then
+                pinCameraToPlayer(newPlayer)
+                currentPlayer = newPlayer
+            end
+        end)
+    end
+end
+
+-- Sự kiện bật/tắt ghim camera
+cameraToggleButton.MouseButton1Click:Connect(function()
+    isCameraPinned = not isCameraPinned
+    if isCameraPinned then
+        cameraToggleButton.Text = "Tắt Ghim Camera"
+        currentPlayer = getNearestPlayer()
+        pinCameraToPlayer(currentPlayer)
+        onPlayerDeath()
+    else
+        cameraToggleButton.Text = "Bật Ghim Camera"
+        game.Workspace.CurrentCamera.CameraSubject = player.Character.Humanoid  -- Trả về player chính
+    end
+end)
