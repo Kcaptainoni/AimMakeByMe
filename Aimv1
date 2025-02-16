@@ -42,23 +42,17 @@ local function getClosestPlayerInRadius()
     return closestPlayer
 end
 
--- Hàm để camera đi theo người chơi nhưng luôn nhìn vào người khác
-local function followPlayerAndAimAtTarget()
+-- Hàm ghim camera nhìn vào người chơi gần nhất
+local function aimAtTarget()
     local closestPlayer = getClosestPlayerInRadius()
 
-    -- Camera đi theo nhân vật của người chơi
-    if character and character:FindFirstChild("HumanoidRootPart") then
-        camera.CameraType = Enum.CameraType.Scriptable
-        -- Camera sẽ ở trên người chơi một khoảng cách
-        local playerPosition = character.HumanoidRootPart.Position
-        local cameraPosition = playerPosition + Vector3.new(0, 10, 15) -- Camera theo sau người chơi một khoảng
-        if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
-            -- Ghim camera nhìn vào người chơi gần nhất
-            camera.CFrame = CFrame.new(cameraPosition, closestPlayer.Character.HumanoidRootPart.Position)
-        else
-            -- Nếu không có ai trong phạm vi thì chỉ theo người chơi
-            camera.CFrame = CFrame.new(cameraPosition, playerPosition)
-        end
+    -- Nếu tìm thấy người chơi trong phạm vi, camera sẽ hướng về phía người đó
+    if closestPlayer and closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
+        -- Lấy vị trí của người chơi gần nhất
+        local targetPosition = closestPlayer.Character.HumanoidRootPart.Position
+        -- Lấy vị trí của camera hiện tại và tạo CFrame hướng về người chơi đó
+        local cameraPosition = camera.CFrame.Position
+        camera.CFrame = CFrame.new(cameraPosition, targetPosition)
     end
 end
 
@@ -67,11 +61,13 @@ toggleButton.MouseButton1Click:Connect(function()
     isAiming = not isAiming -- Chuyển đổi giữa On/Off
     if isAiming then
         toggleButton.Text = "Off"
-        -- Theo dõi người chơi và ghim camera khi bật
-        game:GetService("RunService").RenderStepped:Connect(followPlayerAndAimAtTarget)
+        -- Đặt chế độ camera theo nhân vật của người chơi
+        camera.CameraType = Enum.CameraType.Custom
+        -- Theo dõi hướng nhìn của camera mà không thay đổi vị trí
+        game:GetService("RunService").RenderStepped:Connect(aimAtTarget)
     else
         toggleButton.Text = "On"
-        -- Trở về chế độ camera bình thường khi tắt
+        -- Trở về chế độ camera mặc định khi tắt
         camera.CameraType = Enum.CameraType.Custom
     end
 end)
