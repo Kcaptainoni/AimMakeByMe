@@ -92,7 +92,6 @@ end
 local isCameraPinned = false
 local currentTarget = nil
 local activeTween = nil
-local predictionTime = 0.2  -- thời gian dự đoán (giây)
 
 local function updateCameraAim()
     if not isCameraPinned then return end
@@ -100,16 +99,19 @@ local function updateCameraAim()
     if currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("Head") then
         local head = currentTarget.Character.Head
         local headPosition = head.Position
-        
-        -- Dự đoán di chuyển: nếu có HumanoidRootPart, sử dụng velocity của nó
+        local cameraPosition = camera.CFrame.Position
+
+        -- Tính khoảng cách giữa camera và head của target
+        local distance = (headPosition - cameraPosition).Magnitude
+        -- Tính dynamicPredictionTime: nếu target càng xa thì thời gian dự đoán càng lớn (giới hạn từ 0.1 đến 0.5 giây)
+        local dynamicPredictionTime = math.clamp(distance / 200, 0.1, 0.5)
+
         local predictedHeadPosition = headPosition
         local hrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
         if hrp then
-            predictedHeadPosition = headPosition + hrp.Velocity * predictionTime
+            predictedHeadPosition = headPosition + hrp.Velocity * dynamicPredictionTime
         end
-        
-        local cameraPosition = camera.CFrame.Position
-        
+
         -- Kiểm tra line-of-sight với vị trí dự đoán
         local rayParams = RaycastParams.new()
         rayParams.FilterType = Enum.RaycastFilterType.Blacklist
@@ -125,7 +127,7 @@ local function updateCameraAim()
             currentTarget = getNearestVisiblePlayer()
             return
         end
-        
+
         local newCFrame = CFrame.new(cameraPosition, predictedHeadPosition)
         if activeTween then
             activeTween:Cancel()
