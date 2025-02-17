@@ -19,10 +19,25 @@ local activeTween = nil
 local minPrediction = 0.1  -- prediction time tối thiểu
 local maxPrediction = 0.5  -- prediction time tối đa
 local defaultTweenDuration = 0.1  -- thời gian tween mặc định
-local fixLagTweenDuration = 0.05  -- thời gian tween khi fix lag được bật
-local tweenDuration = defaultTweenDuration  -- giá trị hiện hành
+local fixLagTweenDuration = 0.05  -- thời gian tween khi fix lag bật
+local tweenDuration = defaultTweenDuration
 
 local fixLagEnabled = false  -- trạng thái fix lag
+
+-------------------------------------------
+-- HÀM CẬP NHẬT HUD
+-------------------------------------------
+local function updateHUD()
+	if isCameraPinned then
+		if currentTarget and currentTarget.Name then
+			hudLabel.Text = "Camera Pin: ON  -  Tagged: " .. currentTarget.Name
+		else
+			hudLabel.Text = "Camera Pin: ON"
+		end
+	else
+		hudLabel.Text = "Camera Pin: OFF"
+	end
+end
 
 -------------------------------------------
 -- TẠO GUI VĨNH VIỄN (không ResetOnSpawn)
@@ -31,7 +46,7 @@ local screenGui = Instance.new("ScreenGui")
 screenGui.Parent = playerGui
 screenGui.ResetOnSpawn = false
 
--- HUD hiển thị trạng thái Camera Pin (có thể mở rộng sau nếu cần)
+-- HUD hiển thị trạng thái Camera Pin
 local hudLabel = Instance.new("TextLabel")
 hudLabel.Size = UDim2.new(0, 250, 0, 50)
 hudLabel.Position = UDim2.new(0.5, -125, 0, 10)
@@ -53,12 +68,28 @@ local menuButtonCorner = Instance.new("UICorner")
 menuButtonCorner.CornerRadius = UDim.new(0, 8)
 menuButtonCorner.Parent = menuButton
 
--- Hiệu ứng cho nút Open Menu (ví dụ: nhấp nháy nhẹ)
-local menuButtonTweenInfo = TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
-local menuButtonTween = TweenService:Create(menuButton, menuButtonTweenInfo, {BackgroundColor3 = Color3.fromRGB(30,30,30)})
-menuButtonTween:Play()
+-- Hiệu ứng cho nút Open Menu: gradient nhấp nháy nhẹ (rainbow animation)
+local rainbowGradient = Instance.new("UIGradient")
+rainbowGradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+    ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 127, 0)),
+    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
+    ColorSequenceKeypoint.new(0.75, Color3.fromRGB(0, 255, 0)),
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 255))
+})
+rainbowGradient.Rotation = 0
+rainbowGradient.Parent = menuButton
 
--- Frame chứa menu (tăng kích thước để chứa 2 nút)
+spawn(function()
+	while true do
+		for i = 0, 360, 1 do
+			rainbowGradient.Rotation = i
+			wait(0.01)
+		end
+	end
+end)
+
+-- Frame chứa menu
 local menuFrame = Instance.new("Frame")
 menuFrame.Size = UDim2.new(0, 300, 0, 200)
 menuFrame.Position = UDim2.new(0.5, -150, 0.5, -100)
@@ -83,7 +114,7 @@ local cameraToggleButtonCorner = Instance.new("UICorner")
 cameraToggleButtonCorner.CornerRadius = UDim.new(0, 8)
 cameraToggleButtonCorner.Parent = cameraToggleButton
 
--- Nút Fix Lag (để giảm giật, làm camera ghim mượt hơn)
+-- Nút Fix Lag (giúp camera ghim mượt hơn)
 local fixLagButton = Instance.new("TextButton")
 fixLagButton.Size = UDim2.new(0, 200, 0, 50)
 fixLagButton.Position = UDim2.new(0.5, -100, 0.6, 0)
@@ -145,7 +176,7 @@ local function createPinEffect(targetCharacter)
 end
 
 -------------------------------------------
--- LẤY TARGET GẦN NHẤT CÓ LINE-OF-SIGHT
+-- LẤY TARGET GẦN NHẤT CÓ LINE-OF-SIGHT (VÀ KHÔNG CÙNG TEAM)
 -------------------------------------------
 local function getNearestVisiblePlayer()
 	local nearestPlayer = nil
@@ -154,7 +185,11 @@ local function getNearestVisiblePlayer()
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
 	for _, p in pairs(Players:GetPlayers()) do
+		-- Bỏ qua local player và các đồng đội (nếu team được thiết lập)
 		if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
+			if player.Team and p.Team and p.Team == player.Team then
+				continue
+			end
 			local headPos = p.Character.Head.Position
 			raycastParams.FilterDescendantsInstances = {p.Character, player.Character}
 			local direction = headPos - origin
@@ -232,6 +267,7 @@ local function updateCameraAim()
 		local rayResult = workspace:Raycast(cameraPosition, direction, rayParams)
 		if rayResult then
 			currentTarget = getNearestVisiblePlayer()
+			updateHUD()
 			return
 		end
 		local newCFrame = CFrame.new(cameraPosition, predictedHeadPosition)
@@ -241,8 +277,10 @@ local function updateCameraAim()
 		local tweenInfo = TweenInfo.new(tweenDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 		activeTween = TweenService:Create(camera, tweenInfo, {CFrame = newCFrame})
 		activeTween:Play()
+		updateHUD()
 	else
 		currentTarget = getNearestVisiblePlayer()
+		updateHUD()
 	end
 end
 
@@ -255,6 +293,7 @@ local function monitorTargetDeath()
 		if humanoid then
 			humanoid.Died:Connect(function()
 				currentTarget = getNearestVisiblePlayer()
+				updateHUD()
 			end)
 		end
 	end
@@ -267,7 +306,6 @@ cameraToggleButton.MouseButton1Click:Connect(function()
 	isCameraPinned = not isCameraPinned
 	if isCameraPinned then
 		cameraToggleButton.Text = "Tắt Ghim Camera"
-		hudLabel.Text = "Camera Pin: ON"
 		toggleSound:Play()
 		currentTarget = getNearestVisiblePlayer()
 		monitorTargetDeath()
@@ -276,10 +314,9 @@ cameraToggleButton.MouseButton1Click:Connect(function()
 		end
 	else
 		cameraToggleButton.Text = "Bật Ghim Camera"
-		hudLabel.Text = "Camera Pin: OFF"
-		toggleSound:Play()
 		currentTarget = nil
 	end
+	updateHUD()
 end)
 
 -------------------------------------------
