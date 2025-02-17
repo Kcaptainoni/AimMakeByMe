@@ -1,6 +1,11 @@
--------------------------------------------
+--[[ 
+    Updated Localscript với giao diện UI được cải tiến: 
+    - Các nút bật/tắt (Camera Pin, Fix Lag, Prediction, Red Dot) được sắp xếp theo lưới 2 hàng x 2 cột.
+    - Nút "Red Dot Settings" nằm bên dưới lưới.
+    Các tính năng khác giữ nguyên.
+--]]
+
 -- SERVICES & VARIABLES
--------------------------------------------
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -15,14 +20,21 @@ local isCameraPinned = false
 local currentTarget = nil
 local activeTween = nil
 
--- Prediction settings (cơ bản)
-local minPrediction = 0.1  -- prediction time tối thiểu
-local maxPrediction = 0.5  -- prediction time tối đa
-local defaultTweenDuration = 0.1  -- thời gian tween mặc định
-local fixLagTweenDuration = 0.05  -- thời gian tween khi fix lag bật
+-- Prediction settings
+local minPrediction = 0.1  
+local maxPrediction = 0.5  
+local defaultTweenDuration = 0.1  
+local fixLagTweenDuration = 0.05    
 local tweenDuration = defaultTweenDuration
+local fixLagEnabled = false
 
-local fixLagEnabled = false  -- trạng thái fix lag
+-- Các biến điều khiển
+local isPredictionEnabled = true
+local isRedDotEnabled = true
+
+-- Các biến cho Red Dot (mặc định: màu đỏ, góc bo tròn hoàn toàn)
+local redDotColor = Color3.new(1, 0, 0)
+local redDotCornerRadius = UDim.new(1, 0)
 
 -------------------------------------------
 -- HÀM CẬP NHẬT HUD
@@ -40,16 +52,17 @@ local function updateHUD()
 end
 
 -------------------------------------------
--- TẠO GUI VĨNH VIỄN (không ResetOnSpawn)
+-- TẠO GUI CHÍNH (ScreenGui không ResetOnSpawn)
 -------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Parent = playerGui
 screenGui.ResetOnSpawn = false
 
--- HUD hiển thị trạng thái Camera Pin
+-- HUD hiển thị trạng thái Camera Pin (đặt ở đầu màn hình)
 local hudLabel = Instance.new("TextLabel")
-hudLabel.Size = UDim2.new(0, 250, 0, 50)
-hudLabel.Position = UDim2.new(0.5, -125, 0, 10)
+hudLabel.AnchorPoint = Vector2.new(0.5, 0)
+hudLabel.Position = UDim2.new(0.5, 0, 0, 10)
+hudLabel.Size = UDim2.new(0, 300, 0, 50)
 hudLabel.BackgroundTransparency = 1
 hudLabel.Text = "Camera Pin: OFF"
 hudLabel.TextColor3 = Color3.new(1,1,1)
@@ -57,25 +70,27 @@ hudLabel.Font = Enum.Font.GothamBold
 hudLabel.TextSize = 24
 hudLabel.Parent = screenGui
 
--- Nút "Open Menu": hình vuông màu đen, không có chữ
-local menuButton = Instance.new("TextButton")
+-- Nút mở Menu (dùng ảnh avatar của player)
+local menuButton = Instance.new("ImageButton")
 menuButton.Size = UDim2.new(0, 50, 0, 50)
 menuButton.Position = UDim2.new(0, 10, 0, 10)
-menuButton.BackgroundColor3 = Color3.new(0,0,0)
-menuButton.Text = ""
+menuButton.BackgroundTransparency = 1
+menuButton.BorderSizePixel = 0
+menuButton.Image = Players:GetUserThumbnailAsync(player.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
 menuButton.Parent = screenGui
+
 local menuButtonCorner = Instance.new("UICorner")
 menuButtonCorner.CornerRadius = UDim.new(0, 8)
 menuButtonCorner.Parent = menuButton
 
--- Hiệu ứng cho nút Open Menu: gradient nhấp nháy nhẹ (rainbow animation)
+-- Hiệu ứng gradient cho menuButton
 local rainbowGradient = Instance.new("UIGradient")
 rainbowGradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
-    ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 127, 0)),
-    ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
-    ColorSequenceKeypoint.new(0.75, Color3.fromRGB(0, 255, 0)),
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 255))
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+	ColorSequenceKeypoint.new(0.25, Color3.fromRGB(255, 127, 0)),
+	ColorSequenceKeypoint.new(0.5, Color3.fromRGB(255, 255, 0)),
+	ColorSequenceKeypoint.new(0.75, Color3.fromRGB(0, 255, 0)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 255))
 })
 rainbowGradient.Rotation = 0
 rainbowGradient.Parent = menuButton
@@ -89,46 +104,224 @@ spawn(function()
 	end
 end)
 
--- Frame chứa menu
+-- Frame chứa Menu
 local menuFrame = Instance.new("Frame")
-menuFrame.Size = UDim2.new(0, 300, 0, 200)
-menuFrame.Position = UDim2.new(0.5, -150, 0.5, -100)
-menuFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+menuFrame.Size = UDim2.new(0, 320, 0, 400)
+menuFrame.Position = UDim2.new(0.5, -160, 0.5, -200)
+menuFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 35)
+menuFrame.BackgroundTransparency = 0.1
 menuFrame.Visible = false
 menuFrame.Parent = screenGui
+
 local menuFrameCorner = Instance.new("UICorner")
 menuFrameCorner.CornerRadius = UDim.new(0, 8)
 menuFrameCorner.Parent = menuFrame
 
--- Nút bật/tắt Camera Pin
+-----------------------------------------------------------
+-- TẠO CONTAINER CHO 4 NÚT TOGGLE (2 hàng x 2 cột)
+-----------------------------------------------------------
+local toggleButtonContainer = Instance.new("Frame")
+toggleButtonContainer.Size = UDim2.new(1, 0, 0, 120)
+toggleButtonContainer.Position = UDim2.new(0, 0, 0.1, 0)
+toggleButtonContainer.BackgroundTransparency = 1
+toggleButtonContainer.Parent = menuFrame
+
+local gridLayout = Instance.new("UIGridLayout")
+gridLayout.CellSize = UDim2.new(0.5, -10, 0, 50)  -- mỗi ô chiếm 50 pixel chiều cao
+gridLayout.CellPadding = UDim2.new(0, 5, 0, 5)
+gridLayout.FillDirection = Enum.FillDirection.Horizontal
+gridLayout.StartCorner = Enum.StartCorner.TopLeft
+gridLayout.Parent = toggleButtonContainer
+
+-----------------------------------------------------------
+-- NÚT BẬT/TẮT CAMERA PIN
+-----------------------------------------------------------
 local cameraToggleButton = Instance.new("TextButton")
-cameraToggleButton.Size = UDim2.new(0, 200, 0, 50)
-cameraToggleButton.Position = UDim2.new(0.5, -100, 0.2, 0)
+cameraToggleButton.Size = UDim2.new(0, 240, 0, 50)  -- kích thước sẽ bị UIGridLayout điều chỉnh lại
 cameraToggleButton.Text = "Bật Ghim Camera"
 cameraToggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 150)
 cameraToggleButton.TextColor3 = Color3.new(1,1,1)
 cameraToggleButton.Font = Enum.Font.GothamBold
 cameraToggleButton.TextSize = 20
-cameraToggleButton.Parent = menuFrame
+cameraToggleButton.Parent = toggleButtonContainer
+
 local cameraToggleButtonCorner = Instance.new("UICorner")
 cameraToggleButtonCorner.CornerRadius = UDim.new(0, 8)
 cameraToggleButtonCorner.Parent = cameraToggleButton
 
--- Nút Fix Lag (giúp camera ghim mượt hơn)
+-----------------------------------------------------------
+-- NÚT FIX LAG
+-----------------------------------------------------------
 local fixLagButton = Instance.new("TextButton")
-fixLagButton.Size = UDim2.new(0, 200, 0, 50)
-fixLagButton.Position = UDim2.new(0.5, -100, 0.6, 0)
+fixLagButton.Size = UDim2.new(0, 240, 0, 50)
 fixLagButton.Text = "Fix Lag: OFF"
 fixLagButton.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
 fixLagButton.TextColor3 = Color3.new(1,1,1)
 fixLagButton.Font = Enum.Font.GothamBold
 fixLagButton.TextSize = 20
-fixLagButton.Parent = menuFrame
+fixLagButton.Parent = toggleButtonContainer
+
 local fixLagButtonCorner = Instance.new("UICorner")
 fixLagButtonCorner.CornerRadius = UDim.new(0, 8)
 fixLagButtonCorner.Parent = fixLagButton
 
--- Toggle menu khi click vào menuButton
+-----------------------------------------------------------
+-- NÚT BẬT/TẮT PREDICTION
+-----------------------------------------------------------
+local predictionButton = Instance.new("TextButton")
+predictionButton.Size = UDim2.new(0, 240, 0, 50)
+predictionButton.Text = "Prediction: ON"
+predictionButton.BackgroundColor3 = Color3.fromRGB(100, 150, 200)
+predictionButton.TextColor3 = Color3.new(1,1,1)
+predictionButton.Font = Enum.Font.GothamBold
+predictionButton.TextSize = 20
+predictionButton.Parent = toggleButtonContainer
+
+local predictionButtonCorner = Instance.new("UICorner")
+predictionButtonCorner.CornerRadius = UDim.new(0, 8)
+predictionButtonCorner.Parent = predictionButton
+
+-----------------------------------------------------------
+-- NÚT BẬT/TẮT RED DOT
+-----------------------------------------------------------
+local redDotToggleButton = Instance.new("TextButton")
+redDotToggleButton.Size = UDim2.new(0, 240, 0, 50)
+redDotToggleButton.Text = "Red Dot: ON"
+redDotToggleButton.BackgroundColor3 = Color3.fromRGB(150, 100, 200)
+redDotToggleButton.TextColor3 = Color3.new(1,1,1)
+redDotToggleButton.Font = Enum.Font.GothamBold
+redDotToggleButton.TextSize = 20
+redDotToggleButton.Parent = toggleButtonContainer
+
+local redDotToggleButtonCorner = Instance.new("UICorner")
+redDotToggleButtonCorner.CornerRadius = UDim.new(0, 8)
+redDotToggleButtonCorner.Parent = redDotToggleButton
+
+-----------------------------------------------------------
+-- NÚT "RED DOT SETTINGS" (nằm riêng bên dưới lưới 2×2)
+-----------------------------------------------------------
+local redDotSettingsButton = Instance.new("TextButton")
+redDotSettingsButton.Size = UDim2.new(0, 240, 0, 50)
+-- Đặt vị trí cách container toggle khoảng 20 pixel (tính theo pixel)
+redDotSettingsButton.Position = UDim2.new(0.5, -120, 0, 150)
+redDotSettingsButton.Text = "Red Dot Settings"
+redDotSettingsButton.BackgroundColor3 = Color3.fromRGB(100, 100, 255)
+redDotSettingsButton.TextColor3 = Color3.new(1,1,1)
+redDotSettingsButton.Font = Enum.Font.GothamBold
+redDotSettingsButton.TextSize = 20
+redDotSettingsButton.Parent = menuFrame
+
+local redDotSettingsButtonCorner = Instance.new("UICorner")
+redDotSettingsButtonCorner.CornerRadius = UDim.new(0, 8)
+redDotSettingsButtonCorner.Parent = redDotSettingsButton
+
+-----------------------------------------------------------
+-- FRAME CÀI ĐẶT RED DOT (ẩn mặc định)
+-----------------------------------------------------------
+local redDotSettingsFrame = Instance.new("Frame")
+redDotSettingsFrame.Size = UDim2.new(0, 260, 0, 160)
+redDotSettingsFrame.Position = UDim2.new(0.5, -130, 0.15, 0)
+redDotSettingsFrame.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+redDotSettingsFrame.Visible = false
+redDotSettingsFrame.Parent = menuFrame
+
+local redDotSettingsFrameCorner = Instance.new("UICorner")
+redDotSettingsFrameCorner.CornerRadius = UDim.new(0, 8)
+redDotSettingsFrameCorner.Parent = redDotSettingsFrame
+
+-- Label cho màu Red Dot
+local colorLabel = Instance.new("TextLabel")
+colorLabel.Size = UDim2.new(0, 250, 0, 25)
+colorLabel.Position = UDim2.new(0, 5, 0, 5)
+colorLabel.BackgroundTransparency = 1
+colorLabel.Text = "Red Dot Color (#RRGGBB):"
+colorLabel.TextColor3 = Color3.new(1,1,1)
+colorLabel.Font = Enum.Font.GothamBold
+colorLabel.TextSize = 18
+colorLabel.Parent = redDotSettingsFrame
+
+-- TextBox cho màu Red Dot
+local colorTextBox = Instance.new("TextBox")
+colorTextBox.Size = UDim2.new(0, 250, 0, 25)
+colorTextBox.Position = UDim2.new(0, 5, 0, 35)
+colorTextBox.BackgroundColor3 = Color3.new(1,1,1)
+colorTextBox.Text = "#FF0000"
+colorTextBox.TextColor3 = Color3.new(0,0,0)
+colorTextBox.Font = Enum.Font.GothamBold
+colorTextBox.TextSize = 18
+colorTextBox.Parent = redDotSettingsFrame
+
+-- Label cho Corner Radius
+local radiusLabel = Instance.new("TextLabel")
+radiusLabel.Size = UDim2.new(0, 250, 0, 25)
+radiusLabel.Position = UDim2.new(0, 5, 0, 65)
+radiusLabel.BackgroundTransparency = 1
+radiusLabel.Text = "Corner Radius (0-1):"
+radiusLabel.TextColor3 = Color3.new(1,1,1)
+radiusLabel.Font = Enum.Font.GothamBold
+radiusLabel.TextSize = 18
+radiusLabel.Parent = redDotSettingsFrame
+
+-- TextBox cho Corner Radius
+local radiusTextBox = Instance.new("TextBox")
+radiusTextBox.Size = UDim2.new(0, 250, 0, 25)
+radiusTextBox.Position = UDim2.new(0, 5, 0, 95)
+radiusTextBox.BackgroundColor3 = Color3.new(1,1,1)
+radiusTextBox.Text = "1"
+radiusTextBox.TextColor3 = Color3.new(0,0,0)
+radiusTextBox.Font = Enum.Font.GothamBold
+radiusTextBox.TextSize = 18
+radiusTextBox.Parent = redDotSettingsFrame
+
+-- Nút Apply cho cài đặt Red Dot
+local applyRedDotSettingsButton = Instance.new("TextButton")
+applyRedDotSettingsButton.Size = UDim2.new(0, 250, 0, 30)
+applyRedDotSettingsButton.Position = UDim2.new(0, 5, 0, 125)
+applyRedDotSettingsButton.BackgroundColor3 = Color3.fromRGB(0, 200, 150)
+applyRedDotSettingsButton.Text = "Apply Settings"
+applyRedDotSettingsButton.TextColor3 = Color3.new(1,1,1)
+applyRedDotSettingsButton.Font = Enum.Font.GothamBold
+applyRedDotSettingsButton.TextSize = 18
+applyRedDotSettingsButton.Parent = redDotSettingsFrame
+
+local applyRedDotSettingsButtonCorner = Instance.new("UICorner")
+applyRedDotSettingsButtonCorner.CornerRadius = UDim.new(0, 8)
+applyRedDotSettingsButtonCorner.Parent = applyRedDotSettingsButton
+
+-- Toggle hiển thị bảng Red Dot Settings khi nhấn nút
+redDotSettingsButton.MouseButton1Click:Connect(function()
+	redDotSettingsFrame.Visible = not redDotSettingsFrame.Visible
+end)
+
+-- Hàm chuyển đổi Hex sang Color3
+local function hexToColor3(hex)
+	hex = hex:gsub("#", "")
+	if #hex == 6 then
+		local r = tonumber(hex:sub(1,2), 16)
+		local g = tonumber(hex:sub(3,4), 16)
+		local b = tonumber(hex:sub(5,6), 16)
+		return Color3.fromRGB(r, g, b)
+	else
+		return Color3.new(1,0,0)
+	end
+end
+
+-- Khi nhấn Apply Settings, cập nhật cài đặt cho Red Dot
+applyRedDotSettingsButton.MouseButton1Click:Connect(function()
+	local newColor = hexToColor3(colorTextBox.Text)
+	local newRadius = tonumber(radiusTextBox.Text) or 1
+	if newRadius < 0 then newRadius = 0 end
+	if newRadius > 1 then newRadius = 1 end
+	redDotColor = newColor
+	redDotCornerRadius = UDim.new(newRadius, 0)
+	-- Làm mới lại Red Dot
+	disableRedDots()
+	wait(0.1)
+	enableRedDots()
+	redDotSettingsFrame.Visible = false
+end)
+
+-- Toggle hiển thị Menu khi click vào menuButton
 menuButton.MouseButton1Click:Connect(function()
 	menuFrame.Visible = not menuFrame.Visible
 end)
@@ -137,12 +330,12 @@ end)
 -- ÂM THANH HIỆU ỨNG
 -------------------------------------------
 local toggleSound = Instance.new("Sound")
-toggleSound.SoundId = "rbxassetid://12222225" -- thay assetId theo ý bạn
+toggleSound.SoundId = "rbxassetid://12222225" -- thay đổi assetId nếu cần
 toggleSound.Volume = 1
 toggleSound.Parent = screenGui
 
 -------------------------------------------
--- HIỆU ỨNG PIN: Tạo hiệu ứng tại head của target
+-- HIỆU ỨNG PIN: tạo hiệu ứng tại đầu target
 -------------------------------------------
 local function createPinEffect(targetCharacter)
 	local head = targetCharacter:FindFirstChild("Head")
@@ -157,26 +350,25 @@ local function createPinEffect(targetCharacter)
 
 		local effectFrame = Instance.new("Frame")
 		effectFrame.Size = UDim2.new(1, 0, 1, 0)
-		effectFrame.BackgroundColor3 = Color3.new(1, 1, 0)  -- màu vàng
+		effectFrame.BackgroundColor3 = Color3.new(1, 1, 0)
 		effectFrame.BorderSizePixel = 0
 		effectFrame.BackgroundTransparency = 0.3
 		effectFrame.Parent = billboard
+
 		local effectCorner = Instance.new("UICorner")
 		effectCorner.CornerRadius = UDim.new(1, 0)
 		effectCorner.Parent = effectFrame
 
-		local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-		local goal = {Size = UDim2.new(0, 150, 0, 150), StudsOffset = Vector3.new(0, 5, 0), BackgroundTransparency = 1}
-		local tween = TweenService:Create(billboard, tweenInfo, goal)
-		tween:Play()
-		tween.Completed:Connect(function()
-			billboard:Destroy()
+		delay(0.5, function()
+			if billboard then
+				billboard:Destroy()
+			end
 		end)
 	end
 end
 
 -------------------------------------------
--- LẤY TARGET GẦN NHẤT CÓ LINE-OF-SIGHT (VÀ KHÔNG CÙNG TEAM)
+-- LẤY TARGET GẦN NHẤT CÓ LINE-OF-SIGHT (không cùng TEAM)
 -------------------------------------------
 local function getNearestVisiblePlayer()
 	local nearestPlayer = nil
@@ -184,17 +376,19 @@ local function getNearestVisiblePlayer()
 	local origin = camera.CFrame.Position
 	local raycastParams = RaycastParams.new()
 	raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+	-- Loại trừ nhân vật của chính player
+	raycastParams.FilterDescendantsInstances = {player.Character}
+	
 	for _, p in pairs(Players:GetPlayers()) do
-		-- Bỏ qua local player và các đồng đội (nếu team được thiết lập)
 		if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
 			if player.Team and p.Team and p.Team == player.Team then
 				continue
 			end
 			local headPos = p.Character.Head.Position
-			raycastParams.FilterDescendantsInstances = {p.Character, player.Character}
 			local direction = headPos - origin
-			local result = workspace:Raycast(origin, direction, raycastParams)
-			if not result then
+			local rayResult = workspace:Raycast(origin, direction, raycastParams)
+			-- Nếu không có vật cản hoặc vật cản thuộc về target
+			if not rayResult or (rayResult and rayResult.Instance:IsDescendantOf(p.Character)) then
 				local distance = direction.Magnitude
 				if distance < shortestDistance then
 					shortestDistance = distance
@@ -207,9 +401,10 @@ local function getNearestVisiblePlayer()
 end
 
 -------------------------------------------
--- TẠO RED DOT TRÊN HEAD (cho các player khác)
+-- TẠO RED DOT TRÊN HEAD của các player (ngoại trừ chính player)
 -------------------------------------------
 local function createRedDot(character)
+	if not isRedDotEnabled then return end
 	local head = character:WaitForChild("Head", 5)
 	if head and not head:FindFirstChild("RedDotBillboard") then
 		local billboard = Instance.new("BillboardGui")
@@ -222,15 +417,39 @@ local function createRedDot(character)
 
 		local dot = Instance.new("Frame")
 		dot.Size = UDim2.new(1, 0, 1, 0)
-		dot.BackgroundColor3 = Color3.new(1, 0, 0)
+		dot.BackgroundColor3 = redDotColor
 		dot.BorderSizePixel = 0
 		dot.Parent = billboard
+
 		local dotCorner = Instance.new("UICorner")
-		dotCorner.CornerRadius = UDim.new(1, 0)
+		dotCorner.CornerRadius = redDotCornerRadius
 		dotCorner.Parent = dot
 	end
 end
 
+-- Hàm tắt Red Dot
+local function disableRedDots()
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
+			local head = p.Character.Head
+			local redDot = head:FindFirstChild("RedDotBillboard")
+			if redDot then
+				redDot:Destroy()
+			end
+		end
+	end
+end
+
+-- Hàm bật Red Dot
+local function enableRedDots()
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
+			createRedDot(p.Character)
+		end
+	end
+end
+
+-- Tạo red dot cho các player đã có
 for _, p in pairs(Players:GetPlayers()) do
 	if p ~= player then
 		if p.Character then
@@ -244,7 +463,7 @@ for _, p in pairs(Players:GetPlayers()) do
 end
 
 -------------------------------------------
--- UPDATE CAMERA VỚI DỰ ĐOÁN DI CHUYỂN
+-- CẬP NHẬT CAMERA VỚI DỰ ĐOÁN DI CHUYỂN (dùng Lerp)
 -------------------------------------------
 local function updateCameraAim()
 	if not isCameraPinned then return end
@@ -253,30 +472,31 @@ local function updateCameraAim()
 		local headPosition = head.Position
 		local cameraPosition = camera.CFrame.Position
 		local distance = (headPosition - cameraPosition).Magnitude
-		-- Tính dynamic prediction time dựa trên khoảng cách
 		local dynamicPredictionTime = math.clamp(distance / 200, minPrediction, maxPrediction)
 		local predictedHeadPosition = headPosition
-		local hrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
-		if hrp then
-			predictedHeadPosition = headPosition + hrp.Velocity * dynamicPredictionTime
+		if isPredictionEnabled then
+			local hrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
+			if hrp then
+				predictedHeadPosition = headPosition + hrp.Velocity * dynamicPredictionTime
+			end
 		end
+		
+		-- Kiểm tra line-of-sight
 		local rayParams = RaycastParams.new()
 		rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-		rayParams.FilterDescendantsInstances = {currentTarget.Character, player.Character}
-		local direction = predictedHeadPosition - cameraPosition
+		rayParams.FilterDescendantsInstances = {player.Character}
+		local direction = headPosition - cameraPosition
 		local rayResult = workspace:Raycast(cameraPosition, direction, rayParams)
-		if rayResult then
+		if rayResult and not rayResult.Instance:IsDescendantOf(currentTarget.Character) then
+			-- Nếu target bị che, chọn target mới
 			currentTarget = getNearestVisiblePlayer()
 			updateHUD()
 			return
 		end
-		local newCFrame = CFrame.new(cameraPosition, predictedHeadPosition)
-		if activeTween then
-			activeTween:Cancel()
-		end
-		local tweenInfo = TweenInfo.new(tweenDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-		activeTween = TweenService:Create(camera, tweenInfo, {CFrame = newCFrame})
-		activeTween:Play()
+		
+		local targetCFrame = CFrame.new(cameraPosition, predictedHeadPosition)
+		local lerpFactor = fixLagEnabled and 1 or 0.8
+		camera.CFrame = camera.CFrame:Lerp(targetCFrame, lerpFactor)
 		updateHUD()
 	else
 		currentTarget = getNearestVisiblePlayer()
@@ -285,7 +505,7 @@ local function updateCameraAim()
 end
 
 -------------------------------------------
--- GIÁM SÁT TARGET (chuyển target khi target chết)
+-- GIÁM SÁT TARGET (khi target chết)
 -------------------------------------------
 local function monitorTargetDeath()
 	if currentTarget and currentTarget.Character then
@@ -300,7 +520,7 @@ local function monitorTargetDeath()
 end
 
 -------------------------------------------
--- SỰ KIỆN: BẬT/TẮT CAMERA PIN (kèm hiệu ứng, âm thanh)
+-- SỰ KIỆN: BẬT/TẮT CAMERA PIN
 -------------------------------------------
 cameraToggleButton.MouseButton1Click:Connect(function()
 	isCameraPinned = not isCameraPinned
@@ -320,16 +540,40 @@ cameraToggleButton.MouseButton1Click:Connect(function()
 end)
 
 -------------------------------------------
--- SỰ KIỆN: BẬT/TẮT FIX LAG (giúp camera ghim mượt hơn)
+-- SỰ KIỆN: BẬT/TẮT FIX LAG
 -------------------------------------------
 fixLagButton.MouseButton1Click:Connect(function()
 	fixLagEnabled = not fixLagEnabled
 	if fixLagEnabled then
 		fixLagButton.Text = "Fix Lag: ON"
-		tweenDuration = fixLagTweenDuration
 	else
 		fixLagButton.Text = "Fix Lag: OFF"
-		tweenDuration = defaultTweenDuration
+	end
+end)
+
+-------------------------------------------
+-- SỰ KIỆN: BẬT/TẮT PREDICTION
+-------------------------------------------
+predictionButton.MouseButton1Click:Connect(function()
+	isPredictionEnabled = not isPredictionEnabled
+	if isPredictionEnabled then
+		predictionButton.Text = "Prediction: ON"
+	else
+		predictionButton.Text = "Prediction: OFF"
+	end
+end)
+
+-------------------------------------------
+-- SỰ KIỆN: BẬT/TẮT RED DOT
+-------------------------------------------
+redDotToggleButton.MouseButton1Click:Connect(function()
+	isRedDotEnabled = not isRedDotEnabled
+	if isRedDotEnabled then
+		redDotToggleButton.Text = "Red Dot: ON"
+		enableRedDots()
+	else
+		redDotToggleButton.Text = "Red Dot: OFF"
+		disableRedDots()
 	end
 end)
 
@@ -343,8 +587,55 @@ RunService.Heartbeat:Connect(function()
 end)
 
 -------------------------------------------
--- Đảm Bảo GUI Không Bị Ẩn Khi Respawn
+-- ĐẢM BẢO GUI KHÔNG BỊ ẨN KHI RESPAWN
 -------------------------------------------
 player.CharacterAdded:Connect(function(char)
 	wait(0.5)
+end)
+
+-----------------------------------------------------
+-- HIỆU ỨNG CHÀO KHẮNG: "HELLO, [TÊN PLAYER]" VÀ AVATAR
+-----------------------------------------------------
+local welcomeFrame = Instance.new("Frame")
+welcomeFrame.Size = UDim2.new(0, 0, 0, 0)
+welcomeFrame.Position = UDim2.new(0.5, 0, 0.5, 0)
+welcomeFrame.AnchorPoint = Vector2.new(0.5, 0.5)
+welcomeFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+welcomeFrame.BorderSizePixel = 0
+welcomeFrame.Parent = screenGui
+
+local welcomeText = Instance.new("TextLabel")
+welcomeText.Size = UDim2.new(1, 0, 0.4, 0)
+welcomeText.Position = UDim2.new(0, 0, 0, 0)
+welcomeText.BackgroundTransparency = 1
+welcomeText.Text = "Hello, " .. player.Name
+welcomeText.TextColor3 = Color3.new(1, 1, 1)
+welcomeText.Font = Enum.Font.GothamBold
+welcomeText.TextScaled = true
+welcomeText.Parent = welcomeFrame
+
+local avatarImage = Instance.new("ImageLabel")
+avatarImage.Size = UDim2.new(0.8, 0, 0.5, 0)
+avatarImage.Position = UDim2.new(0.1, 0, 0.5, 0)
+avatarImage.BackgroundTransparency = 1
+avatarImage.Parent = welcomeFrame
+
+local thumbType = Enum.ThumbnailType.AvatarBust
+local thumbSize = Enum.ThumbnailSize.Size420x420
+local avatarUrl = Players:GetUserThumbnailAsync(player.UserId, thumbType, thumbSize)
+avatarImage.Image = avatarUrl
+
+local tweenInfoWelcome = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+local goalSize = {Size = UDim2.new(0, 300, 0, 200)}
+local tweenWelcome = TweenService:Create(welcomeFrame, tweenInfoWelcome, goalSize)
+tweenWelcome:Play()
+
+tweenWelcome.Completed:Connect(function()
+	wait(2)
+	local tweenInfoOut = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.In)
+	local tweenOut = TweenService:Create(welcomeFrame, tweenInfoOut, {Size = UDim2.new(0, 0, 0, 0)})
+	tweenOut:Play()
+	tweenOut.Completed:Connect(function()
+		welcomeFrame:Destroy()
+	end)
 end)
