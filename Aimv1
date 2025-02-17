@@ -1,33 +1,67 @@
-local player = game.Players.LocalPlayer
-local playerGui = player:WaitForChild("PlayerGui")
+-------------------------------------------
+-- SERVICES & VARIABLES
+-------------------------------------------
+local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local SoundService = game:GetService("SoundService")
 
------------------------------------------------------------
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local camera = workspace.CurrentCamera
+
+local isCameraPinned = false
+local currentTarget = nil
+local activeTween = nil
+
+-- Prediction settings (cơ bản)
+local minPrediction = 0.1  -- prediction time tối thiểu
+local maxPrediction = 0.5  -- prediction time tối đa
+local defaultTweenDuration = 0.1  -- thời gian tween mặc định
+local fixLagTweenDuration = 0.05  -- thời gian tween khi fix lag được bật
+local tweenDuration = defaultTweenDuration  -- giá trị hiện hành
+
+local fixLagEnabled = false  -- trạng thái fix lag
+
+-------------------------------------------
 -- TẠO GUI VĨNH VIỄN (không ResetOnSpawn)
------------------------------------------------------------
+-------------------------------------------
 local screenGui = Instance.new("ScreenGui")
 screenGui.Parent = playerGui
 screenGui.ResetOnSpawn = false
 
--- Nút mở Menu (đẹp hơn)
+-- HUD hiển thị trạng thái Camera Pin (có thể mở rộng sau nếu cần)
+local hudLabel = Instance.new("TextLabel")
+hudLabel.Size = UDim2.new(0, 250, 0, 50)
+hudLabel.Position = UDim2.new(0.5, -125, 0, 10)
+hudLabel.BackgroundTransparency = 1
+hudLabel.Text = "Camera Pin: OFF"
+hudLabel.TextColor3 = Color3.new(1,1,1)
+hudLabel.Font = Enum.Font.GothamBold
+hudLabel.TextSize = 24
+hudLabel.Parent = screenGui
+
+-- Nút "Open Menu": hình vuông màu đen, không có chữ
 local menuButton = Instance.new("TextButton")
-menuButton.Size = UDim2.new(0, 120, 0, 50)
-menuButton.Position = UDim2.new(0.05, 0, 0.05, 0)
-menuButton.Text = "Mở Menu"
-menuButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
-menuButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-menuButton.Font = Enum.Font.GothamBold
-menuButton.TextSize = 20
+menuButton.Size = UDim2.new(0, 50, 0, 50)
+menuButton.Position = UDim2.new(0, 10, 0, 10)
+menuButton.BackgroundColor3 = Color3.new(0,0,0)
+menuButton.Text = ""
 menuButton.Parent = screenGui
 local menuButtonCorner = Instance.new("UICorner")
 menuButtonCorner.CornerRadius = UDim.new(0, 8)
 menuButtonCorner.Parent = menuButton
 
--- Frame chứa menu
+-- Hiệu ứng cho nút Open Menu (ví dụ: nhấp nháy nhẹ)
+local menuButtonTweenInfo = TweenInfo.new(1, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut, -1, true)
+local menuButtonTween = TweenService:Create(menuButton, menuButtonTweenInfo, {BackgroundColor3 = Color3.fromRGB(30,30,30)})
+menuButtonTween:Play()
+
+-- Frame chứa menu (tăng kích thước để chứa 2 nút)
 local menuFrame = Instance.new("Frame")
-menuFrame.Size = UDim2.new(0, 220, 0, 250)
-menuFrame.Position = UDim2.new(0.5, -110, 0.5, -125)
+menuFrame.Size = UDim2.new(0, 300, 0, 200)
+menuFrame.Position = UDim2.new(0.5, -150, 0.5, -100)
 menuFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 menuFrame.Visible = false
 menuFrame.Parent = screenGui
@@ -35,13 +69,13 @@ local menuFrameCorner = Instance.new("UICorner")
 menuFrameCorner.CornerRadius = UDim.new(0, 8)
 menuFrameCorner.Parent = menuFrame
 
--- Nút bật/tắt Camera Pin (đẹp hơn)
+-- Nút bật/tắt Camera Pin
 local cameraToggleButton = Instance.new("TextButton")
-cameraToggleButton.Size = UDim2.new(0, 180, 0, 50)
-cameraToggleButton.Position = UDim2.new(0.5, -90, 0.2, 0)
+cameraToggleButton.Size = UDim2.new(0, 200, 0, 50)
+cameraToggleButton.Position = UDim2.new(0.5, -100, 0.2, 0)
 cameraToggleButton.Text = "Bật Ghim Camera"
 cameraToggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 150)
-cameraToggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+cameraToggleButton.TextColor3 = Color3.new(1,1,1)
 cameraToggleButton.Font = Enum.Font.GothamBold
 cameraToggleButton.TextSize = 20
 cameraToggleButton.Parent = menuFrame
@@ -49,174 +83,231 @@ local cameraToggleButtonCorner = Instance.new("UICorner")
 cameraToggleButtonCorner.CornerRadius = UDim.new(0, 8)
 cameraToggleButtonCorner.Parent = cameraToggleButton
 
+-- Nút Fix Lag (để giảm giật, làm camera ghim mượt hơn)
+local fixLagButton = Instance.new("TextButton")
+fixLagButton.Size = UDim2.new(0, 200, 0, 50)
+fixLagButton.Position = UDim2.new(0.5, -100, 0.6, 0)
+fixLagButton.Text = "Fix Lag: OFF"
+fixLagButton.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+fixLagButton.TextColor3 = Color3.new(1,1,1)
+fixLagButton.Font = Enum.Font.GothamBold
+fixLagButton.TextSize = 20
+fixLagButton.Parent = menuFrame
+local fixLagButtonCorner = Instance.new("UICorner")
+fixLagButtonCorner.CornerRadius = UDim.new(0, 8)
+fixLagButtonCorner.Parent = fixLagButton
+
+-- Toggle menu khi click vào menuButton
 menuButton.MouseButton1Click:Connect(function()
-    menuFrame.Visible = not menuFrame.Visible
+	menuFrame.Visible = not menuFrame.Visible
 end)
 
------------------------------------------------------------
--- HÀM CHỌN TARGET CÓ LINE-OF-SIGHT (không sau tường)
------------------------------------------------------------
+-------------------------------------------
+-- ÂM THANH HIỆU ỨNG
+-------------------------------------------
+local toggleSound = Instance.new("Sound")
+toggleSound.SoundId = "rbxassetid://12222225" -- thay assetId theo ý bạn
+toggleSound.Volume = 1
+toggleSound.Parent = screenGui
+
+-------------------------------------------
+-- HIỆU ỨNG PIN: Tạo hiệu ứng tại head của target
+-------------------------------------------
+local function createPinEffect(targetCharacter)
+	local head = targetCharacter:FindFirstChild("Head")
+	if head then
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "PinEffect"
+		billboard.Adornee = head
+		billboard.Size = UDim2.new(0, 100, 0, 100)
+		billboard.StudsOffset = Vector3.new(0, 3, 0)
+		billboard.AlwaysOnTop = true
+		billboard.Parent = head
+
+		local effectFrame = Instance.new("Frame")
+		effectFrame.Size = UDim2.new(1, 0, 1, 0)
+		effectFrame.BackgroundColor3 = Color3.new(1, 1, 0)  -- màu vàng
+		effectFrame.BorderSizePixel = 0
+		effectFrame.BackgroundTransparency = 0.3
+		effectFrame.Parent = billboard
+		local effectCorner = Instance.new("UICorner")
+		effectCorner.CornerRadius = UDim.new(1, 0)
+		effectCorner.Parent = effectFrame
+
+		local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+		local goal = {Size = UDim2.new(0, 150, 0, 150), StudsOffset = Vector3.new(0, 5, 0), BackgroundTransparency = 1}
+		local tween = TweenService:Create(billboard, tweenInfo, goal)
+		tween:Play()
+		tween.Completed:Connect(function()
+			billboard:Destroy()
+		end)
+	end
+end
+
+-------------------------------------------
+-- LẤY TARGET GẦN NHẤT CÓ LINE-OF-SIGHT
+-------------------------------------------
 local function getNearestVisiblePlayer()
-    local nearestPlayer = nil
-    local shortestDistance = math.huge
-    local camera = workspace.CurrentCamera
-    local origin = camera.CFrame.Position
-    local raycastParams = RaycastParams.new()
-    raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
-
-    for _, p in pairs(game.Players:GetPlayers()) do
-        if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
-            local headPos = p.Character.Head.Position
-            if player.Character then
-                raycastParams.FilterDescendantsInstances = {p.Character, player.Character}
-            else
-                raycastParams.FilterDescendantsInstances = {p.Character}
-            end
-            local direction = headPos - origin
-            local result = workspace:Raycast(origin, direction, raycastParams)
-            if not result then
-                local distance = direction.Magnitude
-                if distance < shortestDistance then
-                    shortestDistance = distance
-                    nearestPlayer = p
-                end
-            end
-        end
-    end
-    return nearestPlayer
+	local nearestPlayer = nil
+	local shortestDistance = math.huge
+	local origin = camera.CFrame.Position
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterType = Enum.RaycastFilterType.Blacklist
+	for _, p in pairs(Players:GetPlayers()) do
+		if p ~= player and p.Character and p.Character:FindFirstChild("Head") then
+			local headPos = p.Character.Head.Position
+			raycastParams.FilterDescendantsInstances = {p.Character, player.Character}
+			local direction = headPos - origin
+			local result = workspace:Raycast(origin, direction, raycastParams)
+			if not result then
+				local distance = direction.Magnitude
+				if distance < shortestDistance then
+					shortestDistance = distance
+					nearestPlayer = p
+				end
+			end
+		end
+	end
+	return nearestPlayer
 end
 
------------------------------------------------------------
--- CÀI ĐẶT CAMERA VỚI DỰ ĐOÁN DI CHUYỂN VÀ TWEEN
------------------------------------------------------------
-local isCameraPinned = false
-local currentTarget = nil
-local activeTween = nil
-
-local function updateCameraAim()
-    if not isCameraPinned then return end
-    local camera = workspace.CurrentCamera
-    if currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("Head") then
-        local head = currentTarget.Character.Head
-        local headPosition = head.Position
-        local cameraPosition = camera.CFrame.Position
-
-        -- Tính khoảng cách giữa camera và head của target
-        local distance = (headPosition - cameraPosition).Magnitude
-        -- Tính dynamicPredictionTime: nếu target càng xa thì thời gian dự đoán càng lớn (giới hạn từ 0.1 đến 0.5 giây)
-        local dynamicPredictionTime = math.clamp(distance / 200, 0.1, 0.5)
-
-        local predictedHeadPosition = headPosition
-        local hrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
-        if hrp then
-            predictedHeadPosition = headPosition + hrp.Velocity * dynamicPredictionTime
-        end
-
-        -- Kiểm tra line-of-sight với vị trí dự đoán
-        local rayParams = RaycastParams.new()
-        rayParams.FilterType = Enum.RaycastFilterType.Blacklist
-        if player.Character then
-            rayParams.FilterDescendantsInstances = {currentTarget.Character, player.Character}
-        else
-            rayParams.FilterDescendantsInstances = {currentTarget.Character}
-        end
-        local direction = predictedHeadPosition - cameraPosition
-        local rayResult = workspace:Raycast(cameraPosition, direction, rayParams)
-        if rayResult then
-            -- Nếu không có đường thẳng, chuyển target khác
-            currentTarget = getNearestVisiblePlayer()
-            return
-        end
-
-        local newCFrame = CFrame.new(cameraPosition, predictedHeadPosition)
-        if activeTween then
-            activeTween:Cancel()
-        end
-        local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-        activeTween = TweenService:Create(camera, tweenInfo, {CFrame = newCFrame})
-        activeTween:Play()
-    else
-        currentTarget = getNearestVisiblePlayer()
-    end
-end
-
--- Theo dõi khi target chết để chuyển target ngay
-local function monitorTargetDeath()
-    if currentTarget and currentTarget.Character then
-        local humanoid = currentTarget.Character:FindFirstChildOfClass("Humanoid")
-        if humanoid then
-            humanoid.Died:Connect(function()
-                currentTarget = getNearestVisiblePlayer()
-            end)
-        end
-    end
-end
-
------------------------------------------------------------
--- TẠO RED DOT TRÊN ĐẦU NHÂN VẬT (THAY THẾ BILLBOARD TÊN & KHOẢNG CÁCH)
------------------------------------------------------------
+-------------------------------------------
+-- TẠO RED DOT TRÊN HEAD (cho các player khác)
+-------------------------------------------
 local function createRedDot(character)
-    local head = character:WaitForChild("Head", 5)
-    if head and not head:FindFirstChild("RedDotBillboard") then
-        local billboard = Instance.new("BillboardGui")
-        billboard.Name = "RedDotBillboard"
-        billboard.Adornee = head
-        billboard.Size = UDim2.new(0, 20, 0, 20)
-        billboard.StudsOffset = Vector3.new(0, 2, 0)
-        billboard.AlwaysOnTop = true
-        billboard.Parent = head
+	local head = character:WaitForChild("Head", 5)
+	if head and not head:FindFirstChild("RedDotBillboard") then
+		local billboard = Instance.new("BillboardGui")
+		billboard.Name = "RedDotBillboard"
+		billboard.Adornee = head
+		billboard.Size = UDim2.new(0, 20, 0, 20)
+		billboard.StudsOffset = Vector3.new(0, 2, 0)
+		billboard.AlwaysOnTop = true
+		billboard.Parent = head
 
-        local dot = Instance.new("Frame")
-        dot.Size = UDim2.new(1, 0, 1, 0)
-        dot.BackgroundColor3 = Color3.new(1, 0, 0)  -- màu đỏ
-        dot.BorderSizePixel = 0
-        dot.Parent = billboard
-        local dotCorner = Instance.new("UICorner")
-        dotCorner.CornerRadius = UDim.new(1, 0)
-        dotCorner.Parent = dot
-    end
+		local dot = Instance.new("Frame")
+		dot.Size = UDim2.new(1, 0, 1, 0)
+		dot.BackgroundColor3 = Color3.new(1, 0, 0)
+		dot.BorderSizePixel = 0
+		dot.Parent = billboard
+		local dotCorner = Instance.new("UICorner")
+		dotCorner.CornerRadius = UDim.new(1, 0)
+		dotCorner.Parent = dot
+	end
 end
 
--- Tạo red dot cho các người chơi khác
-for _, p in pairs(game.Players:GetPlayers()) do
-    if p ~= player then
-        if p.Character then
-            createRedDot(p.Character)
-        end
-        p.CharacterAdded:Connect(function(char)
-            wait(0.1)
-            createRedDot(char)
-        end)
-    end
+for _, p in pairs(Players:GetPlayers()) do
+	if p ~= player then
+		if p.Character then
+			createRedDot(p.Character)
+		end
+		p.CharacterAdded:Connect(function(char)
+			wait(0.5)
+			createRedDot(char)
+		end)
+	end
 end
 
------------------------------------------------------------
--- SỰ KIỆN BẬT/TẮT GHIM CAMERA VỚI DỰ ĐOÁN DI CHUYỂN
------------------------------------------------------------
+-------------------------------------------
+-- UPDATE CAMERA VỚI DỰ ĐOÁN DI CHUYỂN
+-------------------------------------------
+local function updateCameraAim()
+	if not isCameraPinned then return end
+	if currentTarget and currentTarget.Character and currentTarget.Character:FindFirstChild("Head") then
+		local head = currentTarget.Character.Head
+		local headPosition = head.Position
+		local cameraPosition = camera.CFrame.Position
+		local distance = (headPosition - cameraPosition).Magnitude
+		-- Tính dynamic prediction time dựa trên khoảng cách
+		local dynamicPredictionTime = math.clamp(distance / 200, minPrediction, maxPrediction)
+		local predictedHeadPosition = headPosition
+		local hrp = currentTarget.Character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			predictedHeadPosition = headPosition + hrp.Velocity * dynamicPredictionTime
+		end
+		local rayParams = RaycastParams.new()
+		rayParams.FilterType = Enum.RaycastFilterType.Blacklist
+		rayParams.FilterDescendantsInstances = {currentTarget.Character, player.Character}
+		local direction = predictedHeadPosition - cameraPosition
+		local rayResult = workspace:Raycast(cameraPosition, direction, rayParams)
+		if rayResult then
+			currentTarget = getNearestVisiblePlayer()
+			return
+		end
+		local newCFrame = CFrame.new(cameraPosition, predictedHeadPosition)
+		if activeTween then
+			activeTween:Cancel()
+		end
+		local tweenInfo = TweenInfo.new(tweenDuration, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+		activeTween = TweenService:Create(camera, tweenInfo, {CFrame = newCFrame})
+		activeTween:Play()
+	else
+		currentTarget = getNearestVisiblePlayer()
+	end
+end
+
+-------------------------------------------
+-- GIÁM SÁT TARGET (chuyển target khi target chết)
+-------------------------------------------
+local function monitorTargetDeath()
+	if currentTarget and currentTarget.Character then
+		local humanoid = currentTarget.Character:FindFirstChildOfClass("Humanoid")
+		if humanoid then
+			humanoid.Died:Connect(function()
+				currentTarget = getNearestVisiblePlayer()
+			end)
+		end
+	end
+end
+
+-------------------------------------------
+-- SỰ KIỆN: BẬT/TẮT CAMERA PIN (kèm hiệu ứng, âm thanh)
+-------------------------------------------
 cameraToggleButton.MouseButton1Click:Connect(function()
-    isCameraPinned = not isCameraPinned
-    if isCameraPinned then
-        cameraToggleButton.Text = "Tắt Ghim Camera"
-        currentTarget = getNearestVisiblePlayer()
-        monitorTargetDeath()
-    else
-        cameraToggleButton.Text = "Bật Ghim Camera"
-        currentTarget = nil
-    end
+	isCameraPinned = not isCameraPinned
+	if isCameraPinned then
+		cameraToggleButton.Text = "Tắt Ghim Camera"
+		hudLabel.Text = "Camera Pin: ON"
+		toggleSound:Play()
+		currentTarget = getNearestVisiblePlayer()
+		monitorTargetDeath()
+		if currentTarget and currentTarget.Character then
+			createPinEffect(currentTarget.Character)
+		end
+	else
+		cameraToggleButton.Text = "Bật Ghim Camera"
+		hudLabel.Text = "Camera Pin: OFF"
+		toggleSound:Play()
+		currentTarget = nil
+	end
 end)
 
------------------------------------------------------------
--- CẬP NHẬT CAMERA THEO HEARTBEAT
------------------------------------------------------------
+-------------------------------------------
+-- SỰ KIỆN: BẬT/TẮT FIX LAG (giúp camera ghim mượt hơn)
+-------------------------------------------
+fixLagButton.MouseButton1Click:Connect(function()
+	fixLagEnabled = not fixLagEnabled
+	if fixLagEnabled then
+		fixLagButton.Text = "Fix Lag: ON"
+		tweenDuration = fixLagTweenDuration
+	else
+		fixLagButton.Text = "Fix Lag: OFF"
+		tweenDuration = defaultTweenDuration
+	end
+end)
+
+-------------------------------------------
+-- CẬP NHẬT CAMERA TRÊN HEARTBEAT
+-------------------------------------------
 RunService.Heartbeat:Connect(function()
-    if isCameraPinned then
-        updateCameraAim()
-    end
+	if isCameraPinned then
+		updateCameraAim()
+	end
 end)
 
------------------------------------------------------------
--- Đảm bảo khi respawn, GUI vẫn còn và không bị lỗi
------------------------------------------------------------
+-------------------------------------------
+-- Đảm Bảo GUI Không Bị Ẩn Khi Respawn
+-------------------------------------------
 player.CharacterAdded:Connect(function(char)
-    wait(0.5)
+	wait(0.5)
 end)
